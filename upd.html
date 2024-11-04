@@ -1,0 +1,348 @@
+<?php
+// editor.php
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Профессиональный Редактор Кода</title>
+    <style>
+        /* Общие стили */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #1e1e1e;
+            color: #f8f8f2;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Контейнер редактора */
+        .editor-container {
+            position: relative;
+            flex: 1;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow: auto;
+            background-color: #2d2d2d;
+        }
+
+        /* Редактор кода */
+        #codeEditor {
+            width: 100%;
+            height: 100%;
+            background-color: #2d2d2d;
+            color: #f8f8f2;
+            font-size: 16px;
+            line-height: 1.5;
+            outline: none;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            caret-color: #f8f8f2;
+        }
+
+        /* Стили для синтаксического выделения */
+        .token.keyword { color: #cc99cd; }
+        .token.string { color: #7ec699; }
+        .token.comment { color: #999999; }
+        .token.function { color: #f2777a; }
+        .token.number { color: #f99157; }
+        .token.operator { color: #67cdcc; }
+
+        /* Выпадающий список */
+        .dropdown {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+
+        .dropdown label {
+            margin-right: 10px;
+            color: #f8f8f2;
+        }
+
+        .dropdown select {
+            background-color: #444;
+            color: #f8f8f2;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* Скрытие caret */
+        .dropdown select::-ms-expand {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="editor-container">
+        <pre id="codeEditor" contenteditable="true" spellcheck="false"></pre>
+    </div>
+
+    <div class="dropdown">
+        <label for="languageSelect">Язык:</label>
+        <select id="languageSelect">
+            <option value="lua">Lua</option>
+            <option value="python">Python</option>
+            <option value="html">HTML</option>
+            <option value="javascript">JavaScript</option>
+        </select>
+    </div>
+
+    <script>
+        const editor = document.getElementById('codeEditor');
+        const languageSelect = document.getElementById('languageSelect');
+
+        let currentLanguage = languageSelect.value;
+        let isUpdating = false; // Флаг для предотвращения рекурсии
+
+        // Синтаксические правила для разных языков
+        const syntaxRules = {
+            lua: {
+                keywords: ['function', 'end', 'if', 'then', 'else', 'elseif', 'for', 'while', 'do', 'local', 'return'],
+                operators: ['=', '==', '~=', '<=', '>=', '<', '>', '+', '-', '*', '/', '%', '^', '#', '..'],
+                comment: '--',
+                strings: ['"', "'"],
+                autoEnd: ['function', 'if', 'for', 'while', 'do']
+            },
+            python: {
+                keywords: ['def', 'return', 'if', 'elif', 'else', 'for', 'while', 'import', 'from', 'as', 'class', 'try', 'except', 'finally', 'with', 'pass', 'break', 'continue'],
+                operators: ['=', '==', '!=', '<=', '>=', '<', '>', '+', '-', '*', '/', '%', '**', '//'],
+                comment: '#',
+                strings: ['"', "'"],
+                autoEnd: [] // Python использует отступы, не требует 'end'
+            },
+            html: {
+                keywords: [], // HTML не имеет ключевых слов как в языках программирования
+                operators: [], // Операторы не типичны для HTML
+                comment: '<!--',
+                strings: ['"', "'"],
+                autoEnd: []
+            },
+            javascript: {
+                keywords: ['function', 'return', 'if', 'else', 'for', 'while', 'var', 'let', 'const', 'import', 'from', 'export', 'class', 'try', 'catch', 'finally', 'new', 'this', 'typeof'],
+                operators: ['=', '==', '===', '!=', '!==', '<=', '>=', '<', '>', '+', '-', '*', '/', '%', '++', '--', '&&', '||', '!'],
+                comment: '//',
+                strings: ['"', "'", '`'],
+                autoEnd: ['function', 'if', 'for', 'while', 'class', 'try', 'catch']
+            }
+        };
+
+        // Функция для синтаксического выделения
+        function highlightSyntax() {
+            if (isUpdating) return; // Предотвращение рекурсии
+            isUpdating = true;
+
+            const rules = syntaxRules[currentLanguage];
+            const code = editor.textContent;
+
+            // Экранирование HTML-символов
+            let html = escapeHtml(code);
+
+            // Комментарии
+            if (rules.comment) {
+                if (currentLanguage === 'html') {
+                    const commentRegex = /(<!--[\s\S]*?-->)/g;
+                    html = html.replace(commentRegex, '<span class="token comment">$1</span>');
+                } else {
+                    const commentRegex = new RegExp(`(${escapeRegExp(rules.comment)}[^\\n]*)`, 'g');
+                    html = html.replace(commentRegex, '<span class="token comment">$1</span>');
+                }
+            }
+
+            // Строки
+            if (rules.strings.length > 0) {
+                rules.strings.forEach(quote => {
+                    const stringRegex = new RegExp(`(${escapeRegExp(quote)}[^${escapeRegExp(quote)}]*${escapeRegExp(quote)})`, 'g');
+                    html = html.replace(stringRegex, '<span class="token string">$1</span>');
+                });
+            }
+
+            // Ключевые слова
+            if (rules.keywords.length > 0) {
+                const keywordsRegex = new RegExp(`\\b(${rules.keywords.join('|')})\\b`, 'g');
+                html = html.replace(keywordsRegex, '<span class="token keyword">$1</span>');
+            }
+
+            // Функции (простейшее выделение)
+            if (['lua', 'javascript', 'python'].includes(currentLanguage)) {
+                const functionRegex = /\b([a-zA-Z_]\w*)\s*(?=\()/g;
+                html = html.replace(functionRegex, '<span class="token function">$1</span>');
+            }
+
+            // Числа
+            const numberRegex = /\b(\d+(\.\d+)?)\b/g;
+            html = html.replace(numberRegex, '<span class="token number">$1</span>');
+
+            // Операторы
+            if (rules.operators.length > 0) {
+                const operatorsRegex = new RegExp(`(${rules.operators.map(op => escapeRegExp(op)).join('|')})`, 'g');
+                html = html.replace(operatorsRegex, '<span class="token operator">$1</span>');
+            }
+
+            // Обновление содержимого редактора с сохранением позиции курсора
+            const selection = window.getSelection();
+            const range = selection.getRangeAt(0);
+            const preCaretRange = range.cloneRange();
+            preCaretRange.selectNodeContents(editor);
+            preCaretRange.setEnd(range.endContainer, range.endOffset);
+            const caretOffset = preCaretRange.toString().length;
+
+            editor.innerHTML = html;
+
+            setCaretPosition(editor, caretOffset);
+
+            isUpdating = false;
+        }
+
+        // Функции-утилиты
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;")
+                       .replace(/</g, "&lt;")
+                       .replace(/>/g, "&gt;");
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Функция установки позиции курсора по смещению
+        function setCaretPosition(element, offset) {
+            const nodeStack = [element];
+            let node, charCount = 0, found = false;
+
+            while (!found && (node = nodeStack.pop())) {
+                if (node.nodeType === 3) { // Текстовый узел
+                    const nextCharCount = charCount + node.length;
+                    if (offset <= nextCharCount) {
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.setStart(node, offset - charCount);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        found = true;
+                    } else {
+                        charCount = nextCharCount;
+                    }
+                } else {
+                    let i = node.childNodes.length;
+                    while (i--) {
+                        nodeStack.push(node.childNodes[i]);
+                    }
+                }
+            }
+        }
+
+        // Функция вставки текста в текущую позицию курсора
+        function insertAtCursor(text) {
+            const sel = window.getSelection();
+            if (sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                const textNode = document.createTextNode(text);
+                range.insertNode(textNode);
+                // Перемещение курсора после вставленного текста
+                range.setStartAfter(textNode);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                highlightSyntax();
+            }
+        }
+
+        // Функция перемещения курсора на указанное количество символов
+        function moveCursor(offset) {
+            const sel = window.getSelection();
+            if (sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                const pos = range.startOffset + offset;
+                range.setStart(range.startContainer, pos);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        }
+
+        // Обработка ввода текста для синтаксического выделения
+        editor.addEventListener('input', function(e) {
+            highlightSyntax();
+        });
+
+        // Обработка нажатия клавиш для автозакрытия скобок и кавычек
+        editor.addEventListener('keydown', function(e) {
+            const rules = syntaxRules[currentLanguage];
+            const key = e.key;
+
+            // Автозакрытие скобок и кавычек
+            const autoPairs = [...rules.strings, '(', '[', '{'];
+            if (autoPairs.includes(key)) {
+                e.preventDefault();
+                let closingChar = '';
+                switch(key) {
+                    case '(': closingChar = ')'; break;
+                    case '[': closingChar = ']'; break;
+                    case '{': closingChar = '}'; break;
+                    case '"': 
+                    case "'":
+                    case '`':
+                        closingChar = key;
+                        break;
+                }
+                insertAtCursor(key + closingChar);
+                moveCursor(-1);
+            }
+
+            // Авто-добавление 'end' в Lua
+            if (currentLanguage === 'lua' && key === 'Enter') {
+                const sel = window.getSelection();
+                const range = sel.getRangeAt(0);
+                const node = range.startContainer;
+                const text = node.textContent.slice(0, range.startOffset);
+                const lastWordMatch = text.match(/(\b\w+)$/);
+                if (lastWordMatch && rules.autoEnd.includes(lastWordMatch[1])) {
+                    e.preventDefault();
+                    insertAtCursor('\nend');
+                }
+            }
+        });
+
+        // Обработка изменения языка
+        languageSelect.addEventListener('change', function() {
+            currentLanguage = this.value;
+            highlightSyntax();
+        });
+
+        // Установка курсора в конец редактора
+        function placeCaretAtEnd(el) {
+            el.focus();
+            if (typeof window.getSelection != "undefined"
+                && typeof document.createRange != "undefined") {
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                range.collapse(false);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        }
+
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            placeCaretAtEnd(editor);
+            highlightSyntax();
+        });
+    </script>
+</body>
+</html>
